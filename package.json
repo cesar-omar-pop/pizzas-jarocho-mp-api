@@ -1,0 +1,13 @@
+{
+  "name": "pizzas-jarocho-mp-api",
+  "version": "1.0.0",
+  "description": "API Route for Mercado Pago preference creation.",
+  "main": "api/create_preference.js",
+  "scripts": {
+    "start": "echo 'Run Vercel deployment'",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "mercadopago": "^2.0.0" 
+  }
+}
