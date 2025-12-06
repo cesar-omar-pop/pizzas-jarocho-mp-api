@@ -26,7 +26,8 @@ module.exports = async (req, res) => {
         return res.status(500).json({ error: 'Token de acceso de MP no configurado en Vercel.' });
     }
     
-    // 💥 FIX CRÍTICO #2: Creación de la instancia del Cliente
+    // ... Código anterior (CORS, POST check, Inicialización de Cliente MP) ...
+
     const client = new MercadoPagoConfig({ 
         accessToken: process.env.MP_ACCESS_TOKEN 
     });
@@ -65,20 +66,32 @@ module.exports = async (req, res) => {
             auto_return: "approved"
         };
 
-        // 💥 FIX CRÍTICO #3: Usamos el servicio de preferencias instanciado
         const result = await preferenceService.create({ body: preference }); 
         
+        // El resultado es exitoso, devolvemos los datos
         return res.status(200).json({ 
-            id: result.body.id,
-            init_point: result.body.init_point 
+            id: result.id, // 🚨 FIX CRÍTICO: El SDK V2 devuelve 'id' directamente en 'result'
+            init_point: result.init_point 
         });
 
     } catch (error) {
-        // Devolvemos el error detallado para ayudar en la depuración
-        console.error("Error al crear la preferencia de pago (MP):", error.cause || error.message);
+        // 🚨 FIX CRÍTICO: Capturamos el error de Mercado Pago y devolvemos su mensaje
+        console.error("Error al crear la preferencia de pago (MP):", error);
+        
+        let errorMessage = 'Error desconocido al procesar el pago.';
+        if (error.status && error.message) {
+             // Si el error viene de Mercado Pago (ej: 401 Unauthorized), usamos su mensaje
+            errorMessage = `MP Error ${error.status}: ${error.message}`;
+            return res.status(error.status).json({
+                error: 'Error de la API de Mercado Pago',
+                detail: errorMessage
+            });
+        }
+        
+        // Fallback para otros errores internos
         return res.status(500).json({ 
-            error: 'Error interno al crear la preferencia de pago.',
-            detail: error.message || 'Error desconocido. Revisar logs de Vercel.'
+            error: 'Error interno del servidor.',
+            detail: error.message || errorMessage 
         });
     }
 };
