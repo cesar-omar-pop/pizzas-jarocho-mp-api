@@ -1,41 +1,40 @@
-// api/create_preference.js (Versión Final con CORS Forzado)
+// api/create_preference.js (Versión CORREGIDA con Inicialización de Cliente V2)
 
-const mercadopago = require('mercadopago');
+// 💥 FIX CRÍTICO #1: Importar MercadoPagoConfig y Preference para el cliente
+const { MercadoPagoConfig, Preference } = require('mercadopago'); 
 
 // Exportamos la función handler para Vercel
 module.exports = async (req, res) => {
     
     // ------------------------------------------------------------------
-    // 💥 CORS - Forzar Headers antes de cualquier retorno (CRÍTICO) 💥
+    // CORS - Mantenemos esta sección que resolvió el error anterior
     // ------------------------------------------------------------------
-    // Permitir acceso desde cualquier origen (incluyendo http://localhost)
     res.setHeader('Access-Control-Allow-Origin', '*'); 
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     
-    // ------------------------------------------------------------------
-    // 💥 CORS (Manejo de Preflight OPTIONS) 💥
-    // ------------------------------------------------------------------
     if (req.method === 'OPTIONS') {
-        // En un OPTIONS (preflight), respondemos 200 OK y terminamos
-        // Esto soluciona el error "It does not have HTTP ok status"
         return res.status(200).end();
     }
-    // ------------------------------------------------------------------
     
     if (req.method !== 'POST') {
         return res.status(405).send('Método no permitido. Solo POST.');
     }
     
-    // Configuración de Mercado Pago usando la variable de entorno de Vercel
+    // 1. Configuración de Mercado Pago: Usamos el método de Cliente
     if (!process.env.MP_ACCESS_TOKEN) {
         return res.status(500).json({ error: 'Token de acceso de MP no configurado en Vercel.' });
     }
     
-    try {
-        // Inicialización de MP (usando el método correcto para v2.x)
-        mercadopago.configurations.setAccessToken(process.env.MP_ACCESS_TOKEN);
+    // 💥 FIX CRÍTICO #2: Creación de la instancia del Cliente
+    const client = new MercadoPagoConfig({ 
+        accessToken: process.env.MP_ACCESS_TOKEN 
+    });
+    
+    // Instancia del servicio de Preferencias usando el cliente
+    const preferenceService = new Preference(client);
 
+    try {
         const { items, orderId } = req.body; 
         
         if (!items || items.length === 0 || !orderId) {
@@ -50,7 +49,6 @@ module.exports = async (req, res) => {
             currency_id: 'MXN' 
         }));
 
-        // USAMOS VERCEL_URL para el dominio si existe
         const VERCEL_DOMAIN = process.env.VERCEL_URL 
             ? `https://${process.env.VERCEL_URL}` 
             : "http://localhost:80/Pizzas%20Jarocho"; 
@@ -67,7 +65,8 @@ module.exports = async (req, res) => {
             auto_return: "approved"
         };
 
-        const result = await mercadopago.preferences.create(preference);
+        // 💥 FIX CRÍTICO #3: Usamos el servicio de preferencias instanciado
+        const result = await preferenceService.create({ body: preference }); 
         
         return res.status(200).json({ 
             id: result.body.id,
@@ -75,7 +74,8 @@ module.exports = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Error al crear la preferencia de pago:", error.cause || error.message);
+        // Devolvemos el error detallado para ayudar en la depuración
+        console.error("Error al crear la preferencia de pago (MP):", error.cause || error.message);
         return res.status(500).json({ 
             error: 'Error interno al crear la preferencia de pago.',
             detail: error.message || 'Error desconocido. Revisar logs de Vercel.'
