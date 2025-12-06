@@ -5,21 +5,16 @@ const mercadopago = require('mercadopago');
 // Exportamos la función handler para Vercel
 module.exports = async (req, res) => {
     
-    // 1. Configuración de CORS y método (Solo POST)
-    res.setHeader('Access-Control-Allow-Origin', '*'); // Permite llamadas desde cualquier dominio (CORS)
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-    }
-    
+    // Si req.method es OPTIONS, Vercel ya lo maneja con vercel.json, 
+    // pero mantenemos el check POST para seguridad.
     if (req.method !== 'POST') {
+        // Devolvemos 405 Method Not Allowed si no es POST
         return res.status(405).send('Método no permitido. Solo POST.');
     }
     
     // Configurar Mercado Pago usando la variable de entorno de Vercel
     if (!process.env.MP_ACCESS_TOKEN) {
+        // En un error de token, devolvemos un error interno
         return res.status(500).json({ error: 'Token de acceso de MP no configurado.' });
     }
     mercadopago.configure({
@@ -30,29 +25,34 @@ module.exports = async (req, res) => {
         const { items, orderId } = req.body; // Recibimos el carrito y el ID de Firestore
         
         if (!items || items.length === 0 || !orderId) {
-            return res.status(400).json({ error: 'Datos de pedido incompletos.' });
+            return res.status(400).json({ error: 'Faltan datos (items o orderId) para crear la preferencia.' });
         }
-        
+
+        // --- CORRECCIÓN CRÍTICA ---
+        // Usamos item.cantidad en lugar de item.quantity, pues es lo que envía el frontend.
         const mpItems = items.map(item => ({
             title: item.name,
-            unit_price: item.price,
-            quantity: item.quantity,
+            unit_price: parseFloat(item.price) || 0, // Aseguramos que sea número
+            quantity: parseInt(item.cantidad) || 1, // <--- USAR item.cantidad
             currency_id: 'MXN' 
         }));
 
+        // Verificación de ítems válidos (todos deben tener precio y cantidad > 0)
+        if (mpItems.some(item => item.unit_price <= 0 || item.quantity <= 0)) {
+            return res.status(400).json({ error: 'Todos los ítems deben tener precio y cantidad positiva.' });
+        }
+        
         // NOTA: Para probar localmente (XAMPP), debes usar las URL de tu entorno
         const DOMAIN = "http://localhost/Pizzas%20Jarocho"; // Cambia esto si tienes un dominio real
 
         const preference = {
             items: mpItems,
-            // Agregamos el ID de la orden de Firestore como referencia
             external_reference: orderId, 
             back_urls: {
                 success: `${DOMAIN}/notifications.html?payment=success&orderId=${orderId}`, 
                 failure: `${DOMAIN}/cart.html?payment=failure`,
                 pending: `${DOMAIN}/cart.html?payment=pending`,
             },
-            // Webhook para producción (después lo configurarás)
             notification_url: `${DOMAIN}/api/mp_webhook?source_topic=merchant_order`, 
             auto_return: "approved"
         };
@@ -67,9 +67,7 @@ module.exports = async (req, res) => {
 
     } catch (error) {
         console.error("Error al crear la preferencia de pago:", error);
-        return res.status(500).json({ 
-            error: 'Error interno al procesar el pago.',
-            details: error.message 
-        });
+        // Devolvemos un error 500 para el frontend si la llamada a MP falla
+        return res.status(500).json({ error: 'Error interno al crear la preferencia de pago. (Revisar logs de Vercel)' });
     }
 };
