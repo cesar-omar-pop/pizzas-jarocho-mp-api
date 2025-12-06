@@ -1,24 +1,24 @@
-// api/create_preference.js (Versión CORREGIDA para SDK v2.x)
+// api/create_preference.js (Versión Final con CORS Forzado)
 
-// 🚨 CAMBIO CRÍTICO: Inicializamos el SDK de MP con el token directamente
-// No se usa .configure() en las versiones modernas
 const mercadopago = require('mercadopago');
-
-// Configuración de Mercado Pago
-if (process.env.MP_ACCESS_TOKEN) {
-    mercadopago.configurations.setAccessToken(process.env.MP_ACCESS_TOKEN);
-} 
-// Dejamos que falle más adelante si no hay token (error 500)
 
 // Exportamos la función handler para Vercel
 module.exports = async (req, res) => {
+    
+    // ------------------------------------------------------------------
+    // 💥 CORS - Forzar Headers antes de cualquier retorno (CRÍTICO) 💥
+    // ------------------------------------------------------------------
+    // Permitir acceso desde cualquier origen (incluyendo http://localhost)
+    res.setHeader('Access-Control-Allow-Origin', '*'); 
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     
     // ------------------------------------------------------------------
     // 💥 CORS (Manejo de Preflight OPTIONS) 💥
     // ------------------------------------------------------------------
     if (req.method === 'OPTIONS') {
         // En un OPTIONS (preflight), respondemos 200 OK y terminamos
-        // Las reglas de CORS en vercel.json ya deberían manejar los headers
+        // Esto soluciona el error "It does not have HTTP ok status"
         return res.status(200).end();
     }
     // ------------------------------------------------------------------
@@ -27,19 +27,15 @@ module.exports = async (req, res) => {
         return res.status(405).send('Método no permitido. Solo POST.');
     }
     
-    // Si el token no está configurado (debería estarlo), devolvemos error.
+    // Configuración de Mercado Pago usando la variable de entorno de Vercel
     if (!process.env.MP_ACCESS_TOKEN) {
         return res.status(500).json({ error: 'Token de acceso de MP no configurado en Vercel.' });
     }
-    // Si la configuración falla, se debe a que no se usó setAccessToken arriba
-    // Esto lo borramos o comentamos:
-    /*
-    mercadopago.configure({
-        access_token: process.env.MP_ACCESS_TOKEN 
-    });
-    */ 
     
     try {
+        // Inicialización de MP (usando el método correcto para v2.x)
+        mercadopago.configurations.setAccessToken(process.env.MP_ACCESS_TOKEN);
+
         const { items, orderId } = req.body; 
         
         if (!items || items.length === 0 || !orderId) {
@@ -71,7 +67,6 @@ module.exports = async (req, res) => {
             auto_return: "approved"
         };
 
-        // NOTA: Con el SDK v2.x el objeto de preferencia es accesible a través de 'preferences'
         const result = await mercadopago.preferences.create(preference);
         
         return res.status(200).json({ 
@@ -80,7 +75,6 @@ module.exports = async (req, res) => {
         });
 
     } catch (error) {
-        // Intentamos devolver un JSON de error 500
         console.error("Error al crear la preferencia de pago:", error.cause || error.message);
         return res.status(500).json({ 
             error: 'Error interno al crear la preferencia de pago.',
